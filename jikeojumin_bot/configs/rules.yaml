@@ -1,0 +1,17 @@
+filters:
+  language: ko
+  post_year: 2026
+  require_domestic_account: true
+  require_pc_url: true
+classification:
+  major_categories:
+    - 자살유발정보
+    - 자살유해정보
+  mappings:
+    자살동반자 모집: 자살유발정보
+    구체적 방법 제시: 자살유발정보
+    실행/유도 콘텐츠: 자살유발정보
+    위해물건 판매/활용: 자살유발정보
+    자해 사진/동영상: 자살유해정보
+    막연한 감정 표현: 자살유해정보
+    미화/희화화: 자살유해정보
