@@ -1,21 +1,27 @@
 from __future__ import annotations
 
+import argparse
+import csv
 from pathlib import Path
 
-import pandas as pd
 import yaml
+from dotenv import load_dotenv
 
 from src.classifiers.ai_classifier import ai_draft_classification
 from src.collectors.dcinside_collector import DCInsideCollector
 from src.collectors.x_collector import XCollector
 from src.models import PostRecord
-from src.reporters.sims_draft import build_report_reason, to_sims_row
+from src.reporters.sims_draft import build_report_reason
+from src.storage import get_conn, load_sims_ready_rows, upsert_posts
 from src.utils.dedupe import make_duplicate_hash
 from src.utils.lang_filter import detect_language
+from src.utils.screenshot import capture_page
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+load_dotenv(BASE_DIR / ".env")
 CONFIG_DIR = BASE_DIR / "configs"
-EXPORT_DIR = BASE_DIR / "data" / "exports"
+DATA_DIR = BASE_DIR / "data"
+DB_PATH = DATA_DIR / "raw_posts" / "posts.sqlite3"
 
 
 def load_keywords() -> list[str]:
@@ -28,29 +34,45 @@ def load_rules() -> dict:
         return yaml.safe_load(f)
 
 
+def is_pc_url(url: str) -> bool:
+    return "/m." not in url and "mobile" not in url.lower()
+
+
 def pass_filters(post: PostRecord, rules: dict) -> bool:
     filt = rules["filters"]
-    if detect_language(post.content_excerpt) != filt["language"]:
+    if post.detected_language != filt["language"]:
         return False
     if post.created_at.year != int(filt["post_year"]):
         return False
     if bool(filt["require_domestic_account"]) and not post.is_domestic_account:
         return False
-    if bool(filt["require_pc_url"]) and not post.pc_url:
+    if bool(filt["require_pc_url"]) and not is_pc_url(post.pc_url):
+        return False
+    if not post.author_id:
         return False
     return True
 
 
-def run(limit_per_platform: int = 10) -> pd.DataFrame:
+def build_collectors(site: str):
+    all_collectors = {
+        "x": XCollector(),
+        "dcinside": DCInsideCollector(),
+    }
+    if site == "all":
+        return list(all_collectors.values())
+    return [all_collectors[site]]
+
+
+def collect(site: str, max_per_keyword: int, capture: bool = False) -> int:
     rules = load_rules()
     keywords = load_keywords()
+    collectors = build_collectors(site)
 
-    collectors = [XCollector(), DCInsideCollector()]
-    approved_rows = []
+    accepted: list[PostRecord] = []
     seen_hashes: set[str] = set()
 
     for collector in collectors:
-        for post in collector.collect(keywords=keywords, limit=limit_per_platform):
+        for post in collector.collect(keywords=keywords, limit=max_per_keyword):
             post.detected_language = detect_language(post.content_excerpt)
             if not pass_filters(post, rules):
                 continue
@@ -66,16 +88,87 @@ def run(limit_per_platform: int = 10) -> pd.DataFrame:
             post.evidence_text = cls.evidence
             post.report_reason_draft = build_report_reason(post)
             post.sims_ready = cls.major != "미분류"
+            post.is_2026_post = post.created_at.year == 2026
 
-            approved_rows.append(to_sims_row(post))
+            if capture:
+                image_name = f"{post.platform}_{post.id}.png"
+                image_path = DATA_DIR / "screenshots" / image_name
+                try:
+                    post.screenshot_path = capture_page(post.pc_url, str(image_path))
+                except Exception:
+                    post.review_memo = "screenshot_failed"
 
-    df = pd.DataFrame(approved_rows)
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    out = EXPORT_DIR / "sims_draft.csv"
-    df.to_csv(out, index=False, encoding="utf-8-sig")
-    return df
+            accepted.append(post)
+
+    with get_conn(DB_PATH) as conn:
+        return upsert_posts(conn, accepted)
+
+
+def export_csv(out_path: Path) -> int:
+    with get_conn(DB_PATH) as conn:
+        rows = load_sims_ready_rows(conn)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "구분",
+            "유형",
+            "URL(PC)",
+            "사이트명",
+            "작성자",
+            "작성일",
+            "매체내신고",
+            "설명문초안",
+            "이미지경로",
+            "언어",
+            "2026게시물",
+            "국내계정후보",
+        ])
+        for r in rows:
+            writer.writerow([
+                r["risk_category_major"],
+                r["risk_category_minor"],
+                r["pc_url"],
+                r["platform"],
+                r["author_id"],
+                r["created_at"],
+                "Y" if r["report_done"] else "N",
+                r["report_reason_draft"],
+                r["screenshot_path"] or "",
+                r["detected_language"],
+                "Y" if r["is_2026_post"] else "N",
+                "Y" if r["is_domestic_account"] else "N",
+            ])
+    return len(rows)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="지켜줌인 반자동화 MVP")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    collect_cmd = sub.add_parser("collect", help="게시물 수집 및 분류 초안")
+    collect_cmd.add_argument("--site", choices=["x", "dcinside", "all"], default="all")
+    collect_cmd.add_argument("--max-per-keyword", type=int, default=10)
+    collect_cmd.add_argument("--capture", action="store_true", help="스크린샷 캡처 실행")
+
+    export_cmd = sub.add_parser("export", help="SIMS 입력용 CSV 내보내기")
+    export_cmd.add_argument("--out", default=str(DATA_DIR / "exports" / "review_queue.csv"))
+
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+
+    if args.command == "collect":
+        count = collect(site=args.site, max_per_keyword=args.max_per_keyword, capture=args.capture)
+        print(f"collect 완료: {count}건 upsert")
+    elif args.command == "export":
+        out_path = Path(args.out)
+        count = export_csv(out_path)
+        print(f"export 완료: {count}건 -> {out_path}")
 
 
 if __name__ == "__main__":
-    df = run(limit_per_platform=10)
-    print(f"완료: {len(df)}건 저장")
+    main()
