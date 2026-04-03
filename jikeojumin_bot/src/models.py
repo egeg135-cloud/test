@@ -24,6 +24,7 @@ class PostRecord:
     report_done: bool = False
     sims_ready: bool = False
     screenshot_path: Optional[str] = None
+    screenshot_source_url: Optional[str] = None
     duplicate_hash: Optional[str] = None
     review_status: str = "pending"
     review_memo: str = ""

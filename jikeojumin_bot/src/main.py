@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import csv
 from pathlib import Path
 
@@ -82,7 +83,8 @@ def collect(site: str, max_per_keyword: int, capture: bool = False) -> int:
                 continue
             seen_hashes.add(post.duplicate_hash)
 
-            cls = ai_draft_classification(post.content_excerpt)
+            classify_input = f"{post.content_excerpt} {post.pc_url}"
+            cls = ai_draft_classification(classify_input)
             post.risk_category_major = cls.major
             post.risk_category_minor = cls.minor
             post.evidence_text = cls.evidence
@@ -91,10 +93,12 @@ def collect(site: str, max_per_keyword: int, capture: bool = False) -> int:
             post.is_2026_post = post.created_at.year == 2026
 
             if capture:
-                image_name = f"{post.platform}_{post.id}.png"
+                url_hash = hashlib.sha1(post.pc_url.encode("utf-8", errors="ignore")).hexdigest()[:12]
+                image_name = f"{post.platform}_{url_hash}.png"
                 image_path = DATA_DIR / "screenshots" / image_name
                 try:
                     post.screenshot_path = capture_page(post.pc_url, str(image_path))
+                    post.screenshot_source_url = post.pc_url
                 except Exception:
                     post.review_memo = "screenshot_failed"
 
@@ -122,6 +126,7 @@ def export_csv(out_path: Path, links_out: Path | None = None) -> int:
             "매체내신고",
             "설명문초안",
             "이미지경로",
+            "캡처기준URL",
             "언어",
             "2026게시물",
             "국내계정후보",
@@ -138,6 +143,7 @@ def export_csv(out_path: Path, links_out: Path | None = None) -> int:
                 "Y" if r["report_done"] else "N",
                 r["report_reason_draft"],
                 r["screenshot_path"] or "",
+                r["screenshot_source_url"] or "",
                 r["detected_language"],
                 "Y" if r["is_2026_post"] else "N",
                 "Y" if r["is_domestic_account"] else "N",

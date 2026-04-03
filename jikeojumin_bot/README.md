@@ -15,6 +15,11 @@
 - `collect` 기본값이 `--site x`로 설정되어 X 수집을 우선합니다.
 - `export` 시 위험글 링크만 모은 `data/exports/risky_links.txt`를 함께 생성해 바로 복사/붙여넣기할 수 있습니다.
 
+## 약물자해 키워드 반영
+
+- `configs/keywords_ko.txt`에 `ㄷㅂㅈㅅ`, `약물자해`, `쿨드림`을 추가했습니다.
+- 해당 키워드는 분류 시 `유해정보-자해에 대한 막연한 감정 표현` 후보로 우선 태깅됩니다.
+
 ## 구조
 
 - `configs/keywords_ko.txt`: 검색어 사전
@@ -23,6 +28,7 @@
 - `data/raw_posts/posts.sqlite3`: 수집 결과 저장 DB
 - `data/exports/review_queue.csv`: SIMS 입력용 검토 CSV
 - `data/exports/risky_links.txt`: 위험글 PC URL 목록(복사용)
+- `review_queue.csv`의 `캡처기준URL`: 실제 캡처 기준 URL 검증용
 
 ## 실행
 

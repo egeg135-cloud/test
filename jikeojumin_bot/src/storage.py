@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS posts (
     report_done INTEGER NOT NULL,
     sims_ready INTEGER NOT NULL,
     screenshot_path TEXT,
+    screenshot_source_url TEXT,
     duplicate_hash TEXT,
     review_status TEXT NOT NULL,
     review_memo TEXT NOT NULL
@@ -32,10 +33,18 @@ CREATE TABLE IF NOT EXISTS posts (
 """
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(posts)")}
+    if "screenshot_source_url" not in cols:
+        conn.execute("ALTER TABLE posts ADD COLUMN screenshot_source_url TEXT")
+        conn.commit()
+
+
 def get_conn(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.execute(SCHEMA)
+    _migrate(conn)
     return conn
 
 
@@ -45,12 +54,12 @@ def upsert_posts(conn: sqlite3.Connection, posts: Iterable[PostRecord]) -> int:
       id, platform, url, pc_url, author_id, is_domestic_account, detected_language,
       created_at, is_2026_post, content_excerpt, risk_category_major, risk_category_minor,
       evidence_text, report_reason_draft, report_done, sims_ready, screenshot_path,
-      duplicate_hash, review_status, review_memo
+      screenshot_source_url, duplicate_hash, review_status, review_memo
     ) VALUES (
       :id, :platform, :url, :pc_url, :author_id, :is_domestic_account, :detected_language,
       :created_at, :is_2026_post, :content_excerpt, :risk_category_major, :risk_category_minor,
       :evidence_text, :report_reason_draft, :report_done, :sims_ready, :screenshot_path,
-      :duplicate_hash, :review_status, :review_memo
+      :screenshot_source_url, :duplicate_hash, :review_status, :review_memo
     )
     ON CONFLICT(id) DO UPDATE SET
       risk_category_major=excluded.risk_category_major,
@@ -58,6 +67,7 @@ def upsert_posts(conn: sqlite3.Connection, posts: Iterable[PostRecord]) -> int:
       evidence_text=excluded.evidence_text,
       report_reason_draft=excluded.report_reason_draft,
       screenshot_path=COALESCE(excluded.screenshot_path, posts.screenshot_path),
+      screenshot_source_url=COALESCE(excluded.screenshot_source_url, posts.screenshot_source_url),
       duplicate_hash=excluded.duplicate_hash,
       review_status=excluded.review_status,
       review_memo=excluded.review_memo;
@@ -79,8 +89,8 @@ def load_sims_ready_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     conn.row_factory = sqlite3.Row
     query = """
     SELECT risk_category_major, risk_category_minor, pc_url, platform, author_id, created_at,
-           report_done, report_reason_draft, screenshot_path, detected_language,
-           is_2026_post, is_domestic_account
+           report_done, report_reason_draft, screenshot_path, screenshot_source_url,
+           detected_language, is_2026_post, is_domestic_account
     FROM posts
     WHERE sims_ready = 1
     ORDER BY created_at DESC
