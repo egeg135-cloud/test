@@ -10,6 +10,11 @@
 - PC URL만 통과
 - 자동 분류는 초안만 제공, 최종 판정은 사람 검토
 
+## X(트위터) 우선 운영
+
+- `collect` 기본값이 `--site x`로 설정되어 X 수집을 우선합니다.
+- `export` 시 위험글 링크만 모은 `data/exports/risky_links.txt`를 함께 생성해 바로 복사/붙여넣기할 수 있습니다.
+
 ## 구조
 
 - `configs/keywords_ko.txt`: 검색어 사전
@@ -17,6 +22,7 @@
 - `configs/rules.yaml`: 필터/분류 규칙
 - `data/raw_posts/posts.sqlite3`: 수집 결과 저장 DB
 - `data/exports/review_queue.csv`: SIMS 입력용 검토 CSV
+- `data/exports/risky_links.txt`: 위험글 PC URL 목록(복사용)
 
 ## 실행
 
@@ -28,8 +34,13 @@ pip install -r requirements.txt
 playwright install chromium
 cp .env.example .env
 
-python -m src.main collect --site dcinside --max-per-keyword 10
-python -m src.main export --out data/exports/review_queue.csv
+# 기본값이 X 수집
+python -m src.main collect --max-per-keyword 20
+
+# 필요시 전체 매체
+python -m src.main collect --site all --max-per-keyword 10
+
+python -m src.main export --out data/exports/review_queue.csv --links-out data/exports/risky_links.txt
 ```
 
 ## 현재 버전 한계
