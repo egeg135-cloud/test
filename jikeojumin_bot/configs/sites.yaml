@@ -1,0 +1,13 @@
+platforms:
+  x:
+    enabled: true
+    domain_allowlist:
+      - x.com
+      - twitter.com
+    domestic_account_required: true
+  dcinside:
+    enabled: true
+    domain_allowlist:
+      - gall.dcinside.com
+      - m.dcinside.com
+    domestic_account_required: true
